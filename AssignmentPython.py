@@ -74,7 +74,9 @@ def removeWords(listOfTokens, listOfWords):
 # remove punctations
 def removePunctuations(listOfTokens):
     test_joined=' '.join(listOfTokens)
-    test_punc_removed = [char for char in test_joined if char not in string.punctuation]
+    punc = string.punctuation
+    punc = punc.replace('.','')
+    test_punc_removed = [char for char in test_joined if char not in punc]
     test_punc_removed_join = ''.join(test_punc_removed)
     return [word for word in test_punc_removed_join.split()]
 
@@ -119,7 +121,7 @@ def formatHTML(htmllist):
         twoLetterWord = twoLetters(listOfTokens)
         listOfTokens = removeWords(listOfTokens, twoLetterWord)
 
-        #listOfTokens = removePunctuations(listOfTokens)
+        listOfTokens = removePunctuations(listOfTokens)
 
         htmllist[i]   = " ".join(listOfTokens)
         htmllist[i] = unidecode(htmllist[i])
