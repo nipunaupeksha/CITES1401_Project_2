@@ -1,13 +1,21 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# In[1]:
+
+
 import re
+import operator
 from io import StringIO
 from html.parser import HTMLParser
-from nltk.tokenize import word_tokenize
 import string
-from unidecode import unidecode
 from urllib.parse import urlparse
+#from unidecode import unidecode
+#from nltk.tokenize import word_tokenize
+
+
+# In[2]:
+
 
 #read warc file
 def readWARC(filename):
@@ -43,31 +51,22 @@ def readWARC(filename):
             boolContent = True
             temp =""
         if boolContent == True:
-            if '<!DOCTYPE html>' in line:
+            if '<!DOCTYPE' in line or '<html' in line:
                 boolDoctype = True
             if boolDoctype == True:
                 temp+=line.strip()
+    #print(htmllist[0])    
     return htmlDict,responselist,htmllist
 
-#strip down html tags
-class MLStripper(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.reset()
-        self.strict = False
-        self.convert_charrefs= True
-        self.text = StringIO()
-    def handle_data(self, d):
-        self.text.write(d+" ")
-    def get_data(self):
-        return self.text.getvalue()
 
-def strip_tags(html):
-    s = MLStripper()
-    s.feed(html)
-    return s.get_data()
+# In[3]:
 
-# removes a list of words (ie. stopwords) from a tokenized list.
+
+#tokenize the words
+def word_tokenize(sentence):
+    return [word.lower() for word in sentence.split()]
+
+# removes a list of unwanted words from a tokenized list
 def removeWords(listOfTokens, listOfWords):
     return [token for token in listOfTokens if token not in listOfWords]
 
@@ -76,17 +75,31 @@ def removePunctuations(listOfTokens):
     test_joined=' '.join(listOfTokens)
     punc = string.punctuation
     punc = punc.replace('.','')
-    test_punc_removed = [char for char in test_joined if char not in punc]
-    test_punc_removed_join = ''.join(test_punc_removed)
+    punc = punc.replace('+','')
+    punc = punc.replace('-','')
+    punc = punc.replace('*','')
+    
+    translator = re.compile('[%s]' % re.escape(punc))
+    test_punc_removed=translator.sub(' ', test_joined)
+    
+    test_punc_removed=re.sub(' +',' ',test_punc_removed).strip()
+    test_punc_removed_join=test_punc_removed
+
     return [word for word in test_punc_removed_join.split()]
 
 # removes any words composed of less than 2
 def twoLetters(listOfTokens):
     twoLetterWord = []
+    twoLetterList =['a','i','a+','am','an','as','at','by','do','go','he','hi','if','is','in','it','me','my','no',
+                    'of','ok','on','or','ox','pi','so','to''up','us','we']
     for token in listOfTokens:
-        if len(token) < 2 :
+        if (len(token) <= 2) and (token not in twoLetterList) :
             twoLetterWord.append(token)
     return twoLetterWord
+
+
+# In[4]:
+
 
 #format HTML
 def formatHTML(htmllist):
@@ -96,36 +109,45 @@ def formatHTML(htmllist):
     for i in range(len(htmllist)):
 
         #remove script tags
-        htmllist[i] = re.sub(pattern1,'',htmllist[i])
+        htmllist[i] = re.sub(pattern1,' ',htmllist[i])
         #remove style tags
-        htmllist[i] = re.sub(pattern2,'',htmllist[i])
+        htmllist[i] = re.sub(pattern2,' ',htmllist[i])
         #remove title tag
-        htmllist[i] = re.sub(pattern3,'',htmllist[i])
+        htmllist[i] = re.sub(pattern3,' ',htmllist[i])
         #strip out html tags
-        htmllist[i]=strip_tags(htmllist[i])
+        htmllist[i] = re.sub(r'<.+?>', ' ', htmllist[i])
+        htmllist[i] = re.sub(r'&.+?;', ' ', htmllist[i])
 
         #remove special characters and leave only words
         htmllist[i]=re.sub('\W_',' ', htmllist[i])
 
         # removes numbers and words concatenated with numbers IE h4ck3r. Removes road names such as BR-381.
-        htmllist[i]=re.sub("\S*\d\S*"," ", htmllist[i])
-
-        htmllist[i] = htmllist[i].replace(u'\ufffd', '8')    # Replaces the ASCII '�' symbol with '8'
+        #htmllist[i]=re.sub("\S*\d\S*"," ", htmllist[i])
+        htmllist[i]=''.join([t for t in htmllist[i] if not t.isdigit()])
+            
         htmllist[i] = htmllist[i].replace(',', '.')          # Replace commas with period for split
         htmllist[i] = htmllist[i].replace('?', '.')          # Replace question marks with periods for split
         htmllist[i] = htmllist[i].rstrip('\n')               # Removes line breaks
         htmllist[i] = htmllist[i].casefold()                 # Makes all letters lowercase
-        #htmllist[i] = htmllist[i].replace(u'\xa0', u'')     # Replaces \xa0 with ''
 
+        #remove unwanted two letter words
         listOfTokens = word_tokenize(htmllist[i])
         twoLetterWord = twoLetters(listOfTokens)
         listOfTokens = removeWords(listOfTokens, twoLetterWord)
 
         listOfTokens = removePunctuations(listOfTokens)
-
+        
+        #remove two letter words after removing punctuations
+        twoLetterWord = twoLetters(listOfTokens)
+        listOfTokens = removeWords(listOfTokens, twoLetterWord)
+    
         htmllist[i]   = " ".join(listOfTokens)
-        htmllist[i] = unidecode(htmllist[i])
+        
     return htmllist
+
+
+# In[5]:
+
 
 #create a cleaned dict
 def cleanedDictCreator(htmllist, responselist):
@@ -136,6 +158,10 @@ def cleanedDictCreator(htmllist, responselist):
         domainOnly.append(domain)
         domainDict[responselist[i]] = htmllist[i]
     return domainDict
+
+
+# In[6]:
+
 
 #create dictonaries countrywise
 def countryDict(domainDict):
@@ -158,13 +184,21 @@ def countryDict(domainDict):
             ukDomain.append(k)
     return auDict, caDict,ukDict
 
+
+# In[7]:
+
+
 #positive and negative list creation
 def posNegListCreator(posText,negText):
     positiveWords = [line.rstrip('\n') for line in open(posText)]
     negativeWords =[line.rstrip('\n') for line in open(negText)]
     return positiveWords,negativeWords
 
-#find positive words in .au domains
+
+# In[8]:
+
+
+#find positive and negative words in .au domains
 def auGenPosNeg(auDict,positiveWords,negativeWords):
     pnDict = dict()
     for k,v in auDict.items():
@@ -179,7 +213,7 @@ def auGenPosNeg(auDict,positiveWords,negativeWords):
             wordList = lineList[i].split(' ')
             positiveCount=0
             negativeCount=0
-            for j in range(len(wordList)):
+            for j in range(len(wordList)):        
                 if wordList[j].strip() in positiveWords:
                     positiveCount+=1
                     rawPositive+=1
@@ -193,11 +227,11 @@ def auGenPosNeg(auDict,positiveWords,negativeWords):
             elif negativeCount>0 and positiveCount==0:
                 negativePage+=1
             elif negativeCount>positiveCount:
-                negativePage+=1
+                negativePage+=0
             elif positiveCount>negativeCount:
-                positivePage+=1
+                positivePage+=0
             elif positiveCount==negativeCount and positiveCount!=0:
-                positivePage+=1 
+                positivePage+=0 
         if rawNegative!=0:
             ratio = float(rawPositive)/rawNegative
         pnArray =[rawPositive,rawNegative,ratio,positivePage,negativePage]
@@ -216,6 +250,10 @@ def auGenPosNeg(auDict,positiveWords,negativeWords):
     else:
         gen_pos = [posTot,negTot,None,float(posTot)/count,float(negTot)/count]
     return gen_pos
+
+
+# In[9]:
+
 
 def auGovPosNeg(auDict,positiveWords,negativeWords):
     pnDict = dict()
@@ -246,11 +284,11 @@ def auGovPosNeg(auDict,positiveWords,negativeWords):
                 elif negativeCount>0 and positiveCount==0:
                     negativePage+=1
                 elif negativeCount>positiveCount:
-                    negativePage+=1
+                    negativePage+=0
                 elif positiveCount>negativeCount:
-                    positivePage+=1
+                    positivePage+=0
                 elif positiveCount==negativeCount and positiveCount!=0:
-                    positivePage+=1 
+                    positivePage+=0 
         if rawNegative!=0:
             ratio = float(rawPositive)/rawNegative
         pnArray =[rawPositive,rawNegative,ratio,positivePage,negativePage]
@@ -261,14 +299,18 @@ def auGovPosNeg(auDict,positiveWords,negativeWords):
     count =0
     ratio =0
     for k,v in pnDict.items():
-        posTot += v[0]
-        negTot += v[1]
+        posTot += v[3]
+        negTot += v[4]
         count+=1
     if negTot!=0:
         gov_pos = [posTot,negTot,float(posTot)/negTot,float(posTot)/count,float(negTot)/count]
     else:
         gov_pos = [posTot,negTot,None,float(posTot)/count,float(negTot)/count]
     return gov_pos
+
+
+# In[10]:
+
 
 #find country counting
 def countryCounter(auDict,caDict,ukDict):
@@ -317,6 +359,10 @@ def countryCounter(auDict,caDict,ukDict):
         unitedDict[k]=ukCount
     return ausDict,canDict,unitedDict,totalWordsau,totalWordsca,totalWordsuk
 
+
+# In[11]:
+
+
 #find percentages
 def percentageListCreator(ausDict,canDict,unitedDict,totalWordsau,totalWordsca,totalWordsuk):
     auWords =0
@@ -332,7 +378,11 @@ def percentageListCreator(ausDict,canDict,unitedDict,totalWordsau,totalWordsca,t
     percentageList = [val*100 for val in percentageList]
     return percentageList
 
-#find domain occurances
+
+# In[12]:
+
+
+#find domain occurances in the dict
 def findauDomains(auDict):
     countDict=dict()
     for k,v in auDict.items():
@@ -341,40 +391,175 @@ def findauDomains(auDict):
             countDict[temp]+=1
         else:
             countDict[temp]=1
-    countList = []
-    for k,v in countDict.items():
+    cDict = dict(sorted(countDict.items(),key=operator.itemgetter(1),reverse=True))
+    countList=[]
+    for k,v in cDict.items():
         tup=(k,v)
         countList.append(tup)
-    return countList
+    return countList[:5]
+
+
+# In[13]:
+
+
+#find the domain occurances in the file
+def findauDomainsinFile(filename):
+    f = open(filename)
+    rawVal=[]
+    l=[]
+    for line in f:
+        s = re.findall(r'(https?://\S+)', line)
+        if s is not None:
+            for k in s:
+                m = re.search('https?://([A-Za-z_0-9.-]+).*',k)
+                if m:
+                    rawVal.append(m.group(1))
+    for k in range(len(rawVal)):
+        temp =rawVal[k].split('.')
+        if temp[len(temp)-1].strip()=='au':
+            l.append(rawVal[k])
+    countDict=dict()
+    for i in range(len(l)):
+        if l[i] in countDict:
+            countDict[l[i]]+=1
+        else:
+            countDict[l[i]]=1
+    cDict = dict(sorted(countDict.items(),key=operator.itemgetter(1),reverse=True))
+    countList=[]
+    for k,v in cDict.items():
+        tup=(k,v)
+        countList.append(tup)
+    return countList[:5]
+
+
+# In[14]:
+
 
 #main method
 def main(WARC_fname, positive_words_fname, negative_words_fname):
-    htmlDict,responselist,htmllist = readWARC(WARC_fname)
-    htmllist = formatHTML(htmllist)
-    domainDict = cleanedDictCreator(htmllist, responselist)
-    auDict,caDict,ukDict = countryDict(domainDict)
-    positiveWords,negativeWords = posNegListCreator(positive_words_fname,negative_words_fname)
-    
-    gen_pos = auGenPosNeg(auDict,positiveWords,negativeWords)
-    
-    gov_pos = auGovPosNeg(auDict,positiveWords,negativeWords)
- 
-    ausDict,canDict,unitedDict,totalWordsau,totalWordsca,totalWordsuk = countryCounter(auDict,caDict,ukDict)
-    
-    pat = percentageListCreator(ausDict,canDict,unitedDict,totalWordsau,totalWordsca,totalWordsuk)
-    
-    top_links = findauDomains(auDict)
-    
-    return gen_pos,gov_pos,pat,top_links
+    try:
+        htmlDict,responselist,htmllist = readWARC(WARC_fname)
+        htmllist = formatHTML(htmllist)
+        domainDict = cleanedDictCreator(htmllist, responselist)
+        auDict,caDict,ukDict = countryDict(domainDict)
 
-if __name__=='__main__':
-    gen_pos, gov_pos, pat, top_links=main('warc_sample_file.warc','positive_words.txt','negative_words.txt')
-    print("gen_pos: ",gen_pos)
-    print("gov_pos: ",gov_pos)
-    print("pat: ",pat)
-    print("top_links: ",top_links)
+        positiveWords,negativeWords = posNegListCreator(positive_words_fname,negative_words_fname)
+
+        gen_pos = auGenPosNeg(auDict,positiveWords,negativeWords)
+
+        gov_pos = auGovPosNeg(auDict,positiveWords,negativeWords)
+
+        ausDict,canDict,unitedDict,totalWordsau,totalWordsca,totalWordsuk = countryCounter(auDict,caDict,ukDict)
+
+        pat = percentageListCreator(ausDict,canDict,unitedDict,totalWordsau,totalWordsca,totalWordsuk)
+
+        top_links =findauDomainsinFile(WARC_fname)
+        
+        return gen_pos,gov_pos,pat,top_links
+    except Exception as e:
+        print(str(e))
+        return ([],[],[],dict())
+        
 
 
+# In[15]:
+
+
+#if __name__=='__main__':
+#    gen_pos, gov_pos, pat, top_links=main('warc_sample_file.warc','positive_words.txt','negative_words.txt')
+#    print("gen_pos: ",gen_pos)
+#    print("gov_pos: ",gov_pos)
+#    print("pat: ",pat)
+#    print("top_links: ",top_links)
+
+
+# In[16]:
+
+
+#TEST1
+
+#try:
+#    answer,b,c,d = main("warc_sample_file.warc","positive_words.txt","negative_words.txt")
+#    sample_answer = [1238, 586, 2.1126, 26.913, 12.7391]
+#    print(a,b,c,d)
+#    flag = True
+#    if len(answer) != len(sample_answer):
+#        flag = False
+#    if abs(answer[0]-sample_answer[0]) > 1 or abs(answer[1]-sample_answer[1]) > 1 or abs(answer[2]-sample_answer[2]) > 0.001 or abs(answer[3]-sample_answer[3]) > 0.001 or abs(answer[4]-sample_answer[4]) > 0.001:
+#        flag = False
+#    print(flag)
+#except Exception as e:
+#    print("Error:",str(e))
+#    print(False)
+
+#(RESULT = True)
+
+
+# In[17]:
+
+
+#TEST2
+
+# try:
+#    a,answer,c,d = main("warc_sample_file.warc","positive_words.txt","negative_words.txt")
+#    sample_answer = [21, 13, 1.6154, 0.4565, 0.2826]
+#    flag = True
+#    if len(answer) != len(sample_answer):
+#       flag = False
+#    if abs(answer[0]-sample_answer[0]) > 1 or abs(answer[1]-sample_answer[1]) > 1 or abs(answer[2]-sample_answer[2]) > 0.001 or abs(answer[3]-sample_answer[3]) > 0.001 or abs(answer[4]-sample_answer[4]) > 0.001:
+#       flag = False
+#    print(flag)
+# except Exception as e:
+#    print("Error:",str(e))
+#    print(False)
+
+#(RESULT = True)
+
+
+# In[18]:
+
+
+#TEST3
+
+# try:
+#    a,b,answer,d = main("warc_sample_file.warc","positive_words.txt","negative_words.txt")
+#    sample_answer = [0.3421, 0.3186, 0.0995]
+#    flag = True
+#    if len(answer) != len(sample_answer):
+#       flag = False
+#    if abs(answer[0]-sample_answer[0]) > 0.001 or abs(answer[1]-sample_answer[1]) > 0.001 or abs(answer[2]-sample_answer[2]) > 0.001:
+#       flag = False
+#    print(flag)
+# except Exception as e:
+#    print("Error:",str(e))
+#    print(False)
+
+#(RESULT = True)
+
+
+# In[19]:
+
+
+#TEST4
+   
+# try:
+#    a,b,c,answer = main("warc_sample_file.warc","positive_words.txt","negative_words.txt")
+#    sample_answer = [('www.industryupdate.com.au', 275), ('religionsforpeaceaustralia.org.au', 183), ('boundforsouthaustralia.history.sa.gov.au', 148), ('www.jcu.edu.au', 114), ('blogs.geelongcollege.vic.edu.au', 54)]
+#    flag = True
+#    if len(answer) != len(sample_answer):
+#       flag = False
+#    for i in range(len(answer)):
+#       if answer[i][0] != sample_answer[i][0] or answer[i][1] != sample_answer[i][1]:
+#          flag = False
+#    print(flag)
+# except Exception as e:
+#    print("Error:",str(e))
+#    print(False)
+   
+#(RESULT = True)
+
+
+# In[ ]:
 
 
 
